@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
-#from distutils.core import setup
 from setuptools import setup
 
 with open("README.md", "r") as f:
     long_description=f.read()
 
+with open("FoxDot/lib/.version", "r") as f:
+    version = f.read()
+
 setup(name='FoxDot',
-      version='0.6.4',
+      version=version,
       description='Live coding music with SuperCollider',
       author='Ryan Kirkbride',
       author_email='ryan@foxdot.org',
@@ -17,6 +19,8 @@ setup(name='FoxDot',
                 'FoxDot.lib.Code',
                 'FoxDot.lib.Custom',
                 'FoxDot.lib.Extensions',
+                'FoxDot.lib.Extensions.VRender',
+                'FoxDot.lib.Extensions.SonicPi',
                 'FoxDot.lib.Workspace',
                 'FoxDot.lib.Patterns',
                 'FoxDot.lib.SCLang',
@@ -38,7 +42,13 @@ setup(name='FoxDot',
                                  'osc/sceffects/*.scd',
                                  'osc/scsyndef/*.scd',
                                  'demo/*.py',
-                                 'lib/Extensions/*.json',
+                                 'rec/.null',
+                                 'lib/Extensions/*/*.*',
+                                 'lib/Extensions/*/*/*.*',
+                                 'lib/.version',
+                                 'README.md',
                                  ],
                       'FoxDot.lib.Workspace': ['img/*', 'tmp/*'],
                       'FoxDot.lib.Settings' : ['conf.txt']})
+
+

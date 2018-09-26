@@ -1,26 +1,25 @@
-FoxDot - Live Coding with Python v0.6
+FoxDot - Live Coding with Python v0.7
 =====================================
 
 FoxDot is a Python programming environment that provides a fast and user-friendly abstraction to SuperCollider. It also comes with its own IDE, which means it can be used straight out of the box; all you need is Python and SuperCollider and you're ready to go!
 
-### v0.6.4 fixes and updates
+### v0.7 fixes and updates
+- Include `.version` file in `setup.py` and add extension packages `VRender` and `SonicPi`.
+- Update `Sonic-Pi` extension to work with Python 2.
+- Change `Clock` time measure data type to `float` instead of `Fraction` to improve efficiency but sacrificing accuracy.
+- Add `RandomGenerator.set_override_seed` that forces all random number generator patterns to use the same seed - useful if you want to play the same sequences across multiple machines.
+- Added `DefaultServer.record(fn)` and `DefaultServer.stopRecording()` to record audio from SuperCollider. Files are recorded into `FoxDot/FoxDot/rec/` directory. If `fn` is not given, a filename is created automatically from a timestamp.
+- Added nested directories to extension modules that were missing, e.g. `VRender/tmp`, to the manifest for PyPI
+- Fixed attribute access for `Pvar` which allows for operations combining other patterns.
+- Fixed bug caused when using Python 2 and slicing `Pattern` with no supplied end value e.g. `PDur(3, 8)[1:]` that would create giant arrays and raise a `MemoryError`.
+- Added autocomplete prompt
 
-- Fix Tkinter issues with "KP" events and added selection using shift + numpad usage
-- Update setup.py to allow FoxDot to be started from the CLI just using a simple `FoxDot` command.
-
-### v0.6.3 fixes and updates
-
-- Fixed bug stopping pentatonic versions of scales being updated
-- Moved a few samples around - notably the default "o" snare drum was replaced with the default snare drum assigned to "u"
-- Echo effect now relates to number of beats instead of the value of sustain such that `echo=0.5, sus=4` means you hear the echoed sound after half a beat, not after 2 beats.
-- Added navigation using the numpad
-   
 ---
 
 ## Installation and startup
 
 #### Prerequisites
-- [Python 2 or 3](https://www.python.org/) - make sure you say "yes" if you'd like to add Python to your path.
+- [Python 2 or 3](https://www.python.org/) - add Python to your path and install "pip" when prompted during the install.
 - [SuperCollider 3.8 and above](http://supercollider.github.io/download)
 
 #### Recommended
@@ -45,9 +44,10 @@ Quarks.install("FoxDot")
 #### Startup
 
 1. Open SuperCollider and type in `FoxDot.start` and evaluate this line. SuperCollider is now listening for messages from FoxDot. 
-2. Start FoxDot by entering `python -m FoxDot` at the command line.
+2. Start FoxDot by entering `FoxDot` at the command line. If that doesn't work, try `python -m FoxDot`.
 3. If you have installed the SC3 Plugins, use the "Code" drop-down menu to select "Use SC3 Plugins". Restart FoxDot and you'll have access to classes found in the SC3 Plugins.
-4. Check out the [YouTube tutorials](https://www.youtube.com/channel/UCRyrNX07lFcfRSymZEWwl6w) for some in-depth tutorial videos on getting to grips with FoxDot
+4. Keep up to date with the latest verion of FoxDot by running `pip install FoxDot --upgrade` every few weeks.
+5. Check out the [YouTube tutorials](https://www.youtube.com/channel/UCRyrNX07lFcfRSymZEWwl6w) for some in-depth tutorial videos on getting to grips with FoxDot
 
 #### Installing with SuperCollider 3.7 or earlier
 
@@ -81,7 +81,7 @@ p1 >> pads([0,1,2,3])
 
 The empty player object, `p1` is now assigned a the 'pads' synth and some playback instructions. `p1` will play the first four notes of the default scale using a SuperCollider `SynthDef` with the name `\pads`. By default, each note lasts for 1 beat at 120 bpm. These defaults can be changed by specifying keyword arguments:
 
-``` python
+```python
 p1 >> pads([0,1,2,3], dur=[1/4,3/4], sus=1, vib=4, scale=Scale.minor)
 ```
 
@@ -123,6 +123,22 @@ Grouping characters in round brackets laces the pattern so that on each play thr
 
 ``` python
 d1 >> play("x-o{-[--]o[-o]}")
+```
+
+There is now the functionality to specify the sample number for an individual sample when using the `play` SynthDef. This can be done from the play string itself by using the bar character in the form `|<char><sample>|`. These can also be patterns created using brackets:
+
+```python
+# Plays the kick drum with sample 2 but the rest with sample 0
+p1 >> play("|x2|-o-")
+
+# You can use square brackets to play multiple samples
+p1 >> play("|x[12]| o ")
+
+# Round brackets alternate which sample is used on each loop through the sequence
+p1 >> play("|x(12)| o ")
+
+# Curly braces will pick a sample at random
+p1 >> play("|x{0123}| o ")
 ```
 
 ## Scheduling Player methods

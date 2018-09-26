@@ -73,39 +73,38 @@ def ClassPatternMethod(f):
 class metaPattern(object):
     """ Abstract base class for Patterns """
     WEIGHT = -1
-    data = None
+    # data = None
     bracket_style = "[]"
     debugging = False
     meta = []
 
-    def __init__(self, data=[]):
+    def __init__(self, *args):
 
-        # Keep track of the names of any Pattern sub-classes that
-        # might be created during runtime
+        if len(args):
 
-        # if self.__class__.__name__ not in PATTERN_WEIGHTS:
-
-        #     # This is hard coded to be insert before PGroup - should probably check the contents of Pattern weights
-            
-        #     PATTERN_WEIGHTS.insert(-2, self.__class__.__name__)
+            data = args[0]
         
-        if type(data) is str:
-            
-            self.fromString(data)
+            if type(data) is str:
+                
+                self.fromString(data)
 
-        elif type(data) is tuple:
+            elif type(data) is tuple:
 
-            self.data = PGroup(data)
-            self.make()
+                self.data = PGroup(data)
+                self.make()
 
-        elif isinstance(data, self.__class__):
+            elif isinstance(data, self.__class__):
 
-            self.data = data.data
-            
+                self.data = data.data
+                
+            else:
+                
+                self.data = data
+                self.make()
+
         else:
-            
-            self.data = data
-            self.make()
+
+            self.data = []
 
 
     def new(self, data):
@@ -133,8 +132,16 @@ class metaPattern(object):
             8
             ```
         """
-        lengths = [1] + [len(p) for p in self.data if isinstance(p, Pattern)]
-        return LCM(*lengths) * len([item for item in self.data if not isinstance(item, EmptyItem)])
+        lengths = [1]
+        n = 0
+        for item in self.data:
+            if isinstance(item,  EmptyItem):
+                continue
+            elif isinstance(item, Pattern):
+                lengths.append(len(item))
+            n += 1
+        return LCM(*lengths) * n
+
     
     def __str__(self):
         try:
@@ -175,7 +182,8 @@ class metaPattern(object):
 
     def convert_data(self, dtype=float, *args, **kwargs):
         """ Makes a true copy and converts the data to a given data type """
-        return self.true_copy([(item.convert_data(dtype, *args, **kwargs) if isinstance(item, metaPattern) else dtype(item, *args, **kwargs)) for item in self.data])
+        new = map((lambda x: x.convert_data(dtype, *args, **kwargs) if isinstance(x, metaPattern) else dtype(x, *args, **kwargs)), self.data)
+        return self.true_copy(list(new))
 
     def copy(self):
         """ Returns a copy of the Pattern such that alterations to the
@@ -188,7 +196,7 @@ class metaPattern(object):
             Pattern hold the same state as the original.
         """
         new = self.__class__()
-        new.__dict__ = {key: value for key, value in self.__dict__.items()}
+        new.__dict__ = self.__dict__.copy()
         if new_data is not None:
             new.data = new_data
         return new
@@ -196,7 +204,7 @@ class metaPattern(object):
     # Pattern container methods
  
     def __getitem__(self, key):
-        """ Calls self.getitem. Is overridden in `FoxDot.lib.TimeVar`
+        """ Calls self.getitem(). Is overridden in `FoxDot.lib.TimeVar`
             for indexing with TimeVars """
         return self.getitem(key)
 
@@ -207,12 +215,12 @@ class metaPattern(object):
             val = self.new([self.getitem(n) for n in key])
         # We can get items using a slice
         elif isinstance(key, slice):
-            val = self.__getslice__(key.start,  key.stop, key.step)
+            val = self.getslice(key.start,  key.stop, key.step)
         else:
             # Get the "nested" single value
             i = key % len(self.data)
             val = self.data[i]
-            if isinstance(val, Pattern) or ( isinstance(val, GeneratorPattern) and not get_generator ):
+            if isinstance(val, (Pattern, Pattern.Pvar)) or ( isinstance(val, GeneratorPattern) and not get_generator ):
                 j   = key // len(self.data)
                 val = val.getitem(j, get_generator)
             elif isinstance(val, GeneratorPattern) and get_generator:
@@ -247,7 +255,8 @@ class metaPattern(object):
         for i, value in enumerate(self):
             yield i, value
 
-    def __getslice__(self, start, stop, step=1):
+    def getslice(self, start, stop, step=1):
+        """ Called when using __getitem__ with slice notation """
         start = start if start is not None else 0
         stop  = stop if stop is not None else len(self)
         step  = step if step is not None else 1
@@ -374,11 +383,11 @@ class metaPattern(object):
     
     def __or__(self, other):
         """ Use the '|' symbol to 'pipe' Patterns into on another """
-        return self.pipe(other)
+        return self.concat(other)
 
     def __ror__(self, other):
         """ Use the '|' symbol to 'pipe' Patterns into on another """
-        return asStream(other).pipe(self)
+        return asStream(other).concat(self)
 
     # Zipping patterns together using the '&' operator
 
@@ -496,9 +505,9 @@ class metaPattern(object):
         new.data.reverse()
         return new
 
-    def sort(self):
+    def sort(self, *args, **kwargs):
         """ Used in place of sorted(pattern) to force type """
-        return self.new(sorted(self.data))
+        return self.new(sorted(self.data, *args, **kwargs))
 
     def mirror(self):
         """ Reverses the pattern. Differs to `Pattern.reverse()` in that
@@ -613,6 +622,25 @@ class metaPattern(object):
         for n in range(size):
             new.append( modi(self.data, n) )
         new = self.new(new)
+        return new
+
+    @loop_pattern_method
+    def trim(self, size):
+        """ Shortens a pattern until it's length is equal to size - cannot be greater than the length of the current pattern  """
+        new = []
+        for n in range(min(len(self), size)):
+            new.append( modi(self.data, n) )
+        new = self.new(new)
+        return new
+
+    @loop_pattern_method
+    def ltrim(self, size):
+        """ Like trim but removes items from the start of the pattern"""
+        new = []
+        data = self.mirror().data
+        for n in range(min(len(self), size)):
+            new.append( modi(data, n) )
+        new = self.new(new).mirror()
         return new
 
     @loop_pattern_method
@@ -739,7 +767,7 @@ class metaPattern(object):
                 new.append(item)
         return self.new(new)
 
-    def map(self, mapping):
+    def submap(self, mapping):
         """ Similar to Pattern.replace, but takes a dictionary of values """
         new = []
         for item in self.data:
@@ -755,13 +783,14 @@ class metaPattern(object):
             or the name of a Pattern method as a string. """
         
         if callable(method):
-            func = method
-            args = [self.data] + list(args)
+            #func = method
+            #args = [self.data] + list(args)
+            #func = 
+            return self.zip(list(map(method, self.data)))
         else:
             func = getattr(self, method)
             assert callable(func)
-
-        return self.zip(func(*args, **kwargs))
+            return self.zip(func(*args, **kwargs))
 
     def every(self, n, method, *args, **kwargs):
         """ Returns the pattern looped n-1 times then appended with
@@ -772,24 +801,15 @@ class metaPattern(object):
         """ Returns a Pattern that calls `func` on each item """
         return self.new([(item.map(func) if isinstance(item, metaPattern) else func(item)) for item in self.data])       
     
-    def extend(self, item):
-        self[len(self):] = [item]
-        return self
-
-    def new_extend(self, item):
-        new = list(self.data)
-        new.extend(item)
-        return self.new(new)
+    def extend(self, seq):
+        """ Should return None """
+        self.data.extend(map(convert_nested_data, seq))
+        return
 
     def append(self, item):
-        self.data.append(item)
-        self.make()
-        return self
-
-    def new_append(self, item):
-        new = list(self.data)
-        new.append(item)
-        return self.new(new)
+        """ Converts a new item to PGroup etc and appends """
+        self.data.append(convert_nested_data(item))
+        return
     
     def i_rotate(self, n=1):
         self.data = self.data[n:] + self.data[0:n]
@@ -829,9 +849,18 @@ class metaPattern(object):
 
     # Extension methods
         
-    def pipe(self, pattern):
+    def concat(self, data):
         """ Concatonates this patterns stream with another """
-        return Pattern(self.data + asStream(pattern).data)
+        new = Pattern()
+        if isinstance(data, Pattern):
+            new.data = self.data + data.data
+        elif isinstance(data, (list, str)):
+            new.data = list(self.data)
+            new.data.extend(map(convert_nested_data, data))
+        else:
+            new.data = list(self.data)
+            new.append(data)
+        return new
 
     def zipx(self, other):
         """ Returns a `Pattern` of `PGroups`, where each `PGroup` contains the i-th
@@ -917,12 +946,6 @@ class metaPattern(object):
         """ Returns one randomly selected item """
         return choice(self.data)
 
-    def trim(self, size):
-        return self[:size]
-
-    def ltrim(self, size):
-        return self[-size:]
-
     def get_behaviour(self):
         return None
 
@@ -936,26 +959,26 @@ class metaPattern(object):
 
             self.data = list(self.data)
             
-        if not isinstance(self.data, PatternType): # not sure about PlayString data
+        elif not isinstance(self.data, PatternType): # not sure about PlayString data
     
             self.data = [self.data]
 
-        #: Put any data in a tuple into a PGroup
-        for i, data in enumerate(self.data):
-            if type(data) is tuple:
-                self.data[i] = PGroup(data)
-            elif type(data) is list:
-                self.data[i] = Pattern(data)
-            elif type(data) is str and len(data) > 1:
-                self.data[i] = Pattern(data)
+        self.data = list(map(convert_nested_data, self.data))
             
         # If this only contains a pattern, its redundant to use this as a container
             
-        if len(self.data) == 1 and isinstance(self.data[0], Pattern):
+        if len(self.data) == 1:
 
-            self.data = self.data[0].data
+            if isinstance(self.data[0], Pattern):
 
-        self.data = list(self.data)
+                self.data = self.data[0].data
+
+            # Replace this pattern with a Pvar if it is the only item in the Pattern itself
+
+            elif isinstance(self.data[0], Pattern.Pvar): # SUPER HACKY
+
+                self.__class__ = self.data[0].__class__
+                self.__dict__  = self.data[0].__dict__.copy()
                 
         return self
 
@@ -1007,10 +1030,6 @@ class PGroup(metaPattern):
             self.__class__ = Pattern
 
             self.data = new_data
-
-    def extend(self, item):
-        self.data.extend(item)
-        return self
 
     def merge(self, value):
         """ Merge values into one PGroup """
@@ -1204,7 +1223,7 @@ class PGroup(metaPattern):
 
 import random
 
-class GeneratorPattern(random.Random):
+class GeneratorPattern:
     """
         Used for when a Pattern does not generate a set length pattern,
         e.g. random patterns
@@ -1212,19 +1231,9 @@ class GeneratorPattern(random.Random):
     MAX_SIZE = 65536
     debugging = False
 
-    def __new__(cls, *args, **kwargs):
-        """ Override random.Random using first argument as a seed """
-        return super(GeneratorPattern, cls).__new__ (cls)
-
     def __init__(self, **kwargs):
 
-        random.Random.__init__(self)
-
         # Set the seed if a random pattern
-        
-        if kwargs.get("seed", None) is not None:
-            
-            self.seed(kwargs["seed"])
 
         self.args = tuple()
         self.kwargs = kwargs
@@ -1417,6 +1426,25 @@ def PatternFormat(data):
     return data
 
 Format = PatternFormat ## TODO - Remove this
+
+def convert_nested_data(data):
+    """ Converts a piece of data in a pattern to a PGroup/Pattern as appropriate """
+
+    if isinstance(data, (int, float)):
+
+        return data
+
+    elif type(data) is tuple:
+        
+        return PGroup(data)
+    
+    elif type(data) is list or (type(data) is str and len(data) > 1):
+    
+        return Pattern(data)
+
+    else:
+
+        return data
 
 def patternclass(a, b):
     return PGroup if isinstance(a, PGroup) and isinstance(b, PGroup) else Pattern

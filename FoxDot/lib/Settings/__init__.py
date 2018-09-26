@@ -14,6 +14,10 @@ if PY_VERSION == 2:
     range = xrange
     input = raw_input
 
+else:
+
+    from importlib import reload
+
 # Check for OS -> mac, linux, win
 
 SYSTEM  = 0
@@ -47,6 +51,7 @@ USER_CWD     = os.path.realpath(".")
 FOXDOT_ROOT  = os.path.realpath(__file__ + "/../../../")
 FOXDOT_ICON  = os.path.realpath(FOXDOT_ROOT + "/lib/Workspace/img/icon.ico")
 FOXDOT_ICON_GIF = os.path.realpath(FOXDOT_ROOT + "/lib/Workspace/img/icon.gif")
+FOXDOT_HELLO = os.path.realpath(FOXDOT_ROOT + "/lib/Workspace/img/hello.txt")
 FOXDOT_SND   = os.path.realpath(FOXDOT_ROOT + "/snd/")
 FOXDOT_LOOP  = os.path.realpath(FOXDOT_ROOT + "/snd/_loop_/")
 
@@ -55,12 +60,14 @@ SYNTHDEF_DIR  = os.path.realpath(FOXDOT_ROOT + "/osc/scsyndef/")
 EFFECTS_DIR   = os.path.realpath(FOXDOT_ROOT + "/osc/sceffects/")
 ENVELOPE_DIR  = os.path.realpath(FOXDOT_ROOT + "/osc/scenvelopes/")
 TUTORIAL_DIR  = os.path.realpath(FOXDOT_ROOT + "/demo/")
+RECORDING_DIR = os.path.realpath(FOXDOT_ROOT + "/rec/")
 
 FOXDOT_OSC_FUNC     = os.path.realpath(FOXDOT_ROOT + "/osc/OSCFunc.scd")
 FOXDOT_STARTUP_FILE = os.path.realpath(FOXDOT_ROOT + "/osc/Startup.scd")
 FOXDOT_BUFFERS_FILE = os.path.realpath(FOXDOT_ROOT + "/osc/Buffers.scd")
 FOXDOT_EFFECTS_FILE = os.path.realpath(FOXDOT_ROOT + "/osc/Effects.scd")
 FOXDOT_INFO_FILE    = os.path.realpath(FOXDOT_ROOT + "/osc/Info.scd")
+FOXDOT_RECORD_FILE  = os.path.realpath(FOXDOT_ROOT + "/osc/Record.scd")
 FOXDOT_TEMP_FILE    = os.path.realpath(FOXDOT_ROOT + "/lib/Workspace/tmp/tempfile.txt")
 
 # If the tempfile doesn't exist, create it
@@ -85,21 +92,33 @@ def GET_TUTORIAL_FILES():
 
 from . import conf
 
+reload(conf) # incase of a reload
+
 FOXDOT_CONFIG_FILE  = conf.filename
     
-ADDRESS       = conf.ADDRESS
-PORT          = conf.PORT
-PORT2         = conf.PORT2
-FONT          = conf.FONT
-SC3_PLUGINS   = conf.SC3_PLUGINS
-MAX_CHANNELS  = conf.MAX_CHANNELS
-GET_SC_INFO   = conf.GET_SC_INFO
-USE_ALPHA     = conf.USE_ALPHA
-ALPHA_VALUE   = conf.ALPHA_VALUE
+ADDRESS                   = conf.ADDRESS
+PORT                      = conf.PORT
+PORT2                     = conf.PORT2
+FONT                      = conf.FONT
+SC3_PLUGINS               = conf.SC3_PLUGINS
+MAX_CHANNELS              = conf.MAX_CHANNELS
+GET_SC_INFO               = conf.GET_SC_INFO
+USE_ALPHA                 = conf.USE_ALPHA
+ALPHA_VALUE               = conf.ALPHA_VALUE
+MENU_ON_STARTUP           = conf.MENU_ON_STARTUP
+TRANSPARENT_ON_STARTUP    = conf.TRANSPARENT_ON_STARTUP
+RECOVER_WORK              = conf.RECOVER_WORK
+LINE_NUMBER_MARKER_OFFSET = conf.LINE_NUMBER_MARKER_OFFSET
+CPU_USAGE                 = conf.CPU_USAGE
+CLOCK_LATENCY             = conf.CLOCK_LATENCY
 
 if conf.SAMPLES_DIR is not None and conf.SAMPLES_DIR != "":
 
     FOXDOT_SND = os.path.realpath(conf.SAMPLES_DIR)
+
+def get_timestamp():
+    import time
+    return time.strftime("%Y%m%d-%H%M%S")
 
 # Name of SamplePlayer and LoopPlayer SynthDef
 
@@ -111,11 +130,11 @@ class _SamplePlayer:
         return other not in self.names
 
 class _LoopPlayer:
-    name = "loop"
+    names = ("loop", "gsynth")
     def __eq__(self, other):
-        return other == self.name
+        return other in self.names
     def __ne__(self, other):
-        return other != self.name
+        return other not in self.names
 
 class _MidiPlayer:
     name = "MidiOut"

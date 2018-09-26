@@ -1,26 +1,10 @@
-"""
-
-FoxDot is a Python library and programming environment that provides a fast and 
-user-friendly abstraction to the powerful audio-engine, SuperCollider. It comes 
-with its own IDE, which means it can be used straight out of the box; all you need 
-is Python and SuperCollider and you're ready to go!
-
-For more information on installation, check out [the guide](http://foxdot.org/installation), 
-or if you're already set up, you can also find a useful starter guide that introduces the
-key components of FoxDot on [the website](http://foxdot.org/).
-
-Please see the documentation for more detailed information on the FoxDot classes 
-and how to implement them.
-
-Copyright Ryan Kirkbride 2015
-"""
-
 from __future__ import absolute_import, division, print_function
 
-__version__ = "0.6.4"
+import os.path
+with open((os.path.join(os.path.dirname(__file__), ".version")), "r") as f:
+    __version__ = f.read()
 
 import logging
-
 from .Code import *
 
 FoxDotCode.namespace = globals()
@@ -122,6 +106,10 @@ def update_foxdot_clock(clock):
 
         item.set_clock(clock)
 
+    clock.add_method(_convert_json_bpm)
+
+    return
+
 def update_foxdot_server(serv):
     """ Tells the `Effect` and`TempoClock`classes to send OSC messages to
         a new ServerManager instance.
@@ -155,6 +143,26 @@ def instantiate_player_objects():
 
     return
 
+def _reload_synths():
+    """ Resends all the synth / sample info to SuperCollider. Useful for times
+        when starting FoxDot before running `FoxDot.start` in SuperCollider. """
+    from . import SCLang
+    from . import Effects
+    reload(SCLang._SynthDefs)
+    reload(Effects)
+    Samples._reset_buffers()
+    return
+
+def _convert_json_bpm(clock, data):
+    """ Returns a TimeVar object that has been sent across a network using JSON """
+    if isinstance(data, list):
+        cls = data[0]
+        val = data[1]
+        dur = data[2]
+        return FoxDotCode.namespace[cls](val, dur)
+    else:
+        return data
+
 def Master():
     """ Returns a `Group` containing all the players currently active in the Clock """
     return Group(*Clock.playing)
@@ -180,6 +188,15 @@ logging.basicConfig(level=logging.ERROR)
 when.set_namespace(FoxDotCode) # experimental
 
 Clock = TempoClock()
+
 update_foxdot_server(DefaultServer)
 update_foxdot_clock(Clock)
 instantiate_player_objects()
+
+# Create a "now" time variable
+now = var([0]).transform(lambda a: Clock.now())
+nextbar = var([0]).transform(lambda a: Clock.next_bar())
+
+Attributes = Player.get_attributes()
+PatternMethods = Pattern.get_methods()
+PatternTypes = functions(Patterns.Sequences)

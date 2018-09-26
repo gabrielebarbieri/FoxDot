@@ -1,14 +1,18 @@
 from __future__ import absolute_import, division, print_function
 
 try:
-    from Tkinter import Menu, BooleanVar, DISABLED
+    from Tkinter import Menu, BooleanVar, IntVar, DISABLED
 except ImportError:
-    from tkinter import Menu, BooleanVar, DISABLED
+    from tkinter import Menu, BooleanVar, IntVar, DISABLED
 
 import os.path
 from functools import partial
 from ..Settings import *
 from ..Code import FoxDotCode
+
+# Code menu
+
+ctrl = "Command" if SYSTEM == MAC_OS else "Ctrl"
 
 class MenuBar(Menu):
     def __init__(self, master, visible=True):
@@ -17,12 +21,16 @@ class MenuBar(Menu):
 
         Menu.__init__(self, master.root)
 
+        # "ticked" menu options
+
         self.sc3_plugins = BooleanVar()
         self.sc3_plugins.set(SC3_PLUGINS)
 
-        # Set font
-        
-        self.config(font="CodeFont")
+        self.cpu_usage = IntVar()
+        self.cpu_usage.set(CPU_USAGE)
+
+        self.latency = IntVar()
+        self.latency.set(CLOCK_LATENCY)
 
         # File menu
 
@@ -47,14 +55,15 @@ class MenuBar(Menu):
         editmenu.add_command(label="Increase Font Size",      command=self.root.zoom_in, accelerator="Ctrl+=")
         editmenu.add_command(label="Decrease Font Size",      command=self.root.zoom_out, accelerator="Ctrl+-")
         editmenu.add_separator()
-        editmenu.add_command(label="Clear Console", command=self.root.clear_console)
-        editmenu.add_command(label="Toggle Menu", command=self.root.toggle_menu, accelerator="Ctrl+M")
+        editmenu.add_command(label="Clear Console",          command=self.root.clear_console)
+        editmenu.add_command(label="Export Console Log",     command=self.root.export_console)
+        editmenu.add_command(label="Toggle Console",         command=self.root.toggle_console)
+        editmenu.add_separator()
+        editmenu.add_command(label="Toggle Menu",            command=self.root.toggle_menu, accelerator="Ctrl+M")
         editmenu.add_checkbutton(label="Toggle Window Transparency",  command=self.root.toggle_transparency, variable=self.root.transparent)
+        editmenu.add_checkbutton(label="Toggle Auto-fill Prompt",     command=self.root.toggle_prompt,       variable=self.root.show_prompt)
         self.add_cascade(label="Edit", menu=editmenu)
-
-        # Code menu
-
-        ctrl = "Command" if SYSTEM == MAC_OS else "Ctrl"
+        
         # Note: Alt renders properly to look like Option, so we don't need a
         # conditional for those shortcuts
 
@@ -62,9 +71,6 @@ class MenuBar(Menu):
         codemenu.add_command(label="Evaluate Block",         command=self.root.exec_block,  accelerator="{}+Return".format(ctrl))
         codemenu.add_command(label="Evaluate Line",          command=self.root.exec_line,   accelerator="Alt+Return")
         codemenu.add_command(label="Clear Scheduling Clock", command=self.root.killall,     accelerator="{}+.".format(ctrl))
-        codemenu.add_separator()
-        codemenu.add_command(label="Toggle Console",         command=self.root.toggle_console)
-        codemenu.add_command(label="Export Console Log",     command=self.root.export_console)
         codemenu.add_separator()
         codemenu.add_checkbutton(label="Use SC3 Plugins",    command=self.root.toggle_sc3_plugins, variable=self.sc3_plugins)
         codemenu.add_separator()
@@ -75,12 +81,23 @@ class MenuBar(Menu):
         # Help
 
         helpmenu = Menu(self, tearoff=0)
+        helpmenu.add_command(label="Display help message", comman=self.root.help, accelerator="{}+{}".format(ctrl, self.root.help_key))
         helpmenu.add_command(label="Visit FoxDot Homepage", command=self.root.openhomepage)
         helpmenu.add_command(label="Documentation",   command=self.root.opendocumentation)
         helpmenu.add_separator()
+        cpu_menu=Menu(self, tearoff=0)
+        cpu_menu.add_radiobutton(label="Low", variable=self.cpu_usage, value=0, command=self.set_cpu_usage)
+        cpu_menu.add_radiobutton(label="Medium", variable=self.cpu_usage, value=1, command=self.set_cpu_usage)
+        cpu_menu.add_radiobutton(label="High", variable=self.cpu_usage, value=2, command=self.set_cpu_usage)
+        helpmenu.add_cascade(label="CPU Usage", menu=cpu_menu)
+        lat_menu=Menu(self, tearoff=0)
+        lat_menu.add_radiobutton(label="Low", variable=self.latency, value=0, command=self.set_latency)
+        lat_menu.add_radiobutton(label="Medium", variable=self.latency, value=1, command=self.set_latency)
+        lat_menu.add_radiobutton(label="High", variable=self.latency, value=2, command=self.set_latency)
+        helpmenu.add_cascade(label="Clock Latency", menu=lat_menu)
+        helpmenu.add_separator()
         helpmenu.add_command(label="Open Samples Folder",   command=self.root.open_samples_folder)
         helpmenu.add_command(label="Open config file (advanced)",      command=self.root.open_config_file)
-        ##        settingsmenu.add_command(label="Change Colours...",   command=self.root.toggleMenu)
         self.add_cascade(label="Help & Settings", menu=helpmenu)
 
         # Tutorials
@@ -109,6 +126,7 @@ class MenuBar(Menu):
             master.root.config(menu=self)
 
     def toggle(self):
+        """ Hides/shows this menu """
         self.root.root.config(menu=self if not self.visible else 0)
         self.visible = not self.visible
         return
@@ -116,11 +134,11 @@ class MenuBar(Menu):
     def allow_connections(self, **kwargs):
         """ Starts a new instance of ServerManager.TempoServer and connects it with the clock """
         if self.listening_for_connections.get() == True:
-            Clock = self.namespace["Clock"]
+            Clock = self.root.namespace["Clock"]
             Clock.start_tempo_server(TempoServer, **kwargs)
             print("Listening for connections on {}".format(Clock.tempo_server))
         else:
-            Clock = self.namespace["Clock"]
+            Clock = self.root.namespace["Clock"]
             Clock.kill_tempo_server()
             print("Closed connections")
         return
@@ -132,38 +150,66 @@ class MenuBar(Menu):
         self.allow_connections(**kwargs)
         return
 
+    def set_cpu_usage(self, *args):
+        """ Updates the cpu usage option """
+        self.root.namespace["Clock"].set_cpu_usage(self.cpu_usage.get())
+        return
+
+    def set_latency(self, *args):
+        """ Updates the cpu usage option """
+        self.root.namespace["Clock"].set_latency(self.latency.get())
+        return
+
 
 class PopupMenu(Menu):
     def __init__(self, master, **kwargs):
         self.root = master
         Menu.__init__(self, master.root, tearoff=0)
-        self.add_command(label="Undo", command=self.root.undo) 
-        self.add_command(label="Redo", command=self.root.redo)
+        self.add_command(label="Undo", command=self.root.undo, accelerator="{}+Z".format(ctrl)) 
+        self.add_command(label="Redo", command=self.root.redo, accelerator="{}+Y".format(ctrl))
         self.add_separator()
-        self.add_command(label="Copy", command=self.root.edit_copy)
-        self.add_command(label="Cut", command=self.root.edit_cut)
-        self.add_command(label="Paste", command=self.root.edit_paste)
+        self.add_command(label="Copy", command=self.root.edit_copy, accelerator="{}+C".format(ctrl))
+        self.add_command(label="Cut", command=self.root.edit_cut, accelerator="{}+X".format(ctrl))
+        self.add_command(label="Paste", command=self.root.edit_paste, accelerator="{}+V".format(ctrl))
         self.add_separator()
-        self.add_command(label="Select All", command=self.root.select_all)
+        self.add_command(label="Select All", command=self.root.select_all, accelerator="{}+A".format(ctrl))
+        self.bind("<FocusOut>", self.hide) # hide when clicked off
+
 
     def show(self, event):
         """ Displays the popup menu """
-        self.post(event.x_root, event.y_root)
+        try:
+            self.post(event.x_root, event.y_root)
+        finally:
+            self.grab_release()
+
+    def hide(self, event):
+        """ Removes menu from sight """
+        self.unpost()
 
 
 class ConsolePopupMenu(Menu):
     def __init__(self, master, **kwargs):
         self.root = master
         Menu.__init__(self, master.root, tearoff=0)
-        self.add_command(label="Undo", state=DISABLED)
-        self.add_command(label="Redo", state=DISABLED)
+        self.add_command(label="Undo", state=DISABLED, accelerator="{}+Z".format(ctrl))
+        self.add_command(label="Redo", state=DISABLED, accelerator="{}+Y".format(ctrl))
         self.add_separator()
-        self.add_command(label="Copy", command=self.root.edit_copy)
-        self.add_command(label="Cut", state=DISABLED)
-        self.add_command(label="Paste", state=DISABLED)
+        self.add_command(label="Copy", command=self.root.edit_copy, accelerator="{}+C".format(ctrl))
+        self.add_command(label="Cut", state=DISABLED, accelerator="{}+X".format(ctrl))
+        self.add_command(label="Paste", state=DISABLED, accelerator="{}+V".format(ctrl))
         self.add_separator()
-        self.add_command(label="Select All", command=self.root.select_all)
+        self.add_command(label="Select All", command=self.root.select_all, accelerator="{}+A".format(ctrl))
+        self.bind("<FocusOut>", self.hide) # hide when clicked off
 
     def show(self, event):
         """ Displays the popup menu """
-        self.post(event.x_root, event.y_root)
+        try:
+            self.post(event.x_root, event.y_root)
+        finally:
+            self.grab_release()
+
+    def hide(self, event):
+        """ Removes menu from sight """
+        self.unpost()
+        

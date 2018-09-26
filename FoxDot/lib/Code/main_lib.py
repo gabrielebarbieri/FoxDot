@@ -166,14 +166,14 @@ def get_now(obj):
 
 def get_input():
     """ Similar to `input` but can handle multi-line input. Terminates on a final "\n" """
-    line = " "; text = ""
+    line = " "; text = []
     
     while len(line) > 0:
         
         line = input("")
-        text = text + "\n" + line
+        text.append(line)
 
-    return text
+    return "\n".join(text)
 
 def handle_stdin():
     """ When FoxDot is run with the --pipe added, this function
@@ -206,8 +206,11 @@ def WarningMsg(*text):
     print("Warning: {}".format( " ".join(str(s) for s in text) ))
 
 def write_to_file(fn, text):
-    with open(fn, "w") as f:
-        f.write(clean(text))
+    try:
+        with open(fn, "w") as f:
+            f.write(clean(text))
+    except IOError:
+        print("Unable to write to {}".format(fn))
     return
 
 # These functions return information about an imported module

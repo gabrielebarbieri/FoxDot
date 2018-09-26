@@ -38,15 +38,17 @@ from .TextBox import ThreadedText
 from .LineNumbers import LineNumbers
 from .MenuBar import MenuBar, PopupMenu
 from ..Code import write_to_file
+from ..Utils import get_pypi_version
 
 from functools import partial
+from distutils.version import LooseVersion as VersionNumber
 import webbrowser
 import os
 import re
 
 # Code execution
 from ..Code import execute
-from ..Settings import FONT, FOXDOT_ICON, SC3_PLUGINS, FOXDOT_CONFIG_FILE, ALPHA_VALUE, USE_ALPHA
+from ..Settings import FONT, FOXDOT_ICON, FOXDOT_HELLO, SC3_PLUGINS, FOXDOT_CONFIG_FILE, ALPHA_VALUE, USE_ALPHA, MENU_ON_STARTUP, TRANSPARENT_ON_STARTUP, RECOVER_WORK
 from ..ServerManager import TempoServer
 
 # App object
@@ -62,9 +64,17 @@ class workspace:
 
         CodeClass.namespace['FoxDot'] = self
         CodeClass.namespace['Player'].widget = self
-        #CodeClass.namespace['Ghost'].widget = self
 
-        version = CodeClass.namespace['__version__']
+        this_version = CodeClass.namespace['__version__']
+        pypi_version = get_pypi_version()
+
+        def check_versions():
+
+            if pypi_version is not None and VersionNumber(pypi_version) > VersionNumber(this_version):
+
+                tkMessageBox.showinfo("New version available", "There is a new version of FoxDot available from PyPI. Upgrade by going to your command prompt and running:\n\npip install FoxDot --upgrade")
+
+            return
 
         # Used for docstring prompt
         
@@ -73,7 +83,7 @@ class workspace:
         # Set up master widget  
 
         self.root = Tk(className='FoxDot')
-        self.root.title("FoxDot v{} - Live Coding with Python and SuperCollider".format(version))
+        self.root.title("FoxDot v{} - Live Coding with Python and SuperCollider".format(this_version))
         self.root.rowconfigure(0, weight=1) # Text box
         self.root.rowconfigure(1, weight=0) # Separator
         self.root.rowconfigure(2, weight=0) # Console
@@ -91,6 +101,11 @@ class workspace:
 
         self.listening_for_connections = BooleanVar()
         self.listening_for_connections.set(False)
+
+        # Boolean for showing auto-complete prompt
+
+        self.show_prompt = BooleanVar()
+        self.show_prompt.set(True)
 
 
         # --- Set icon
@@ -124,9 +139,11 @@ class workspace:
         self.font = tkFont.Font(font=(self.default_font, 12), name="CodeFont")
         self.font.configure(family=self.default_font)
 
+        self.help_key = "K" if SYSTEM == MAC_OS else "H"
+
         # --- start create menu
 
-        self.menu = MenuBar(self, visible = True)
+        self.menu = MenuBar(self, visible = MENU_ON_STARTUP)
         self.popup = PopupMenu(self)
        
         # Create y-axis scrollbar
@@ -166,7 +183,7 @@ class workspace:
 
         # Docstring prompt label
 
-        self.prompt = TextPrompt(self.text)        
+        self.prompt = TextPrompt(self)
 
         # Key bindings (Use command key on Mac)
 
@@ -179,7 +196,7 @@ class workspace:
         self.text.bind("<Tab>",             self.tab)
         self.text.bind("<Key>",             self.keypress)
 
-        self.text.bind("<Button-{}>".format(2 if SYSTEM == MAC_OS else 3), self.popup.show)
+        self.text.bind("<Button-{}>".format(2 if SYSTEM == MAC_OS else 3), self.show_popup)
 
         self.text.bind("<{}-BackSpace>".format(ctrl),       self.delete_word)
         self.text.bind("<{}-Delete>".format(ctrl),          self.delete_next_word)
@@ -189,12 +206,19 @@ class workspace:
 
         # Directional movement
 
+        self.text.bind("<Up>",                              self.key_up)
+        self.text.bind("<Down>",                            self.key_down)
+
         self.text.bind("<{}-Left>".format(ctrl),            self.move_word_left)
         self.text.bind("<{}-Right>".format(ctrl),           self.move_word_right)
+
+        self.text.bind("<{}-Shift-Right>".format(ctrl),     self.select_word_right)
+        self.text.bind("<{}-Shift-Left>".format(ctrl),      self.select_word_left)
 
         self.text.bind("<Alt_L>",                           lambda event: "break")
 
         self.text.bind("<{}-a>".format(ctrl),               self.select_all)
+        self.text.bind("<{}-d>".format(ctrl),               self.duplicate_line)
 
         self.text.bind("<{}-period>".format(ctrl),          self.killall)
         self.text.bind("<Alt-period>".format(ctrl),         self.releaseNodes)
@@ -217,8 +241,10 @@ class workspace:
         self.text.bind("<{}-n>".format(ctrl),               self.newfile)
 
         self.text.bind("<{}-m>".format(ctrl),               self.toggle_menu)
+        self.text.bind("<{}-l>".format(ctrl),               lambda event: self.insert_char(u"\u03BB")) # insert lambda
+        self.text.bind("<{}-t>".format(ctrl),               lambda event: self.insert_char("~"))
 
-        self.text.bind("<{}-l>".format(ctrl),               self.insert_lambda_symbol)
+        self.text.bind("<{}-{}>".format(ctrl, self.help_key.lower()), self.help)
 
         # Number pad
 
@@ -251,18 +277,6 @@ class workspace:
 
             pass
 
-        # Change ctrl+h on Mac (is used to close)
-
-        if SYSTEM == MAC_OS:
-                       
-            self.text.bind("<{}-k>".format(ctrl), self.help)
-            self.help_key = "K"
-
-        else:
-
-            self.text.bind("<{}-h>".format(ctrl), self.help)
-            self.help_key = "H"
-
         # Toggle console button keybind
 
         try:
@@ -272,8 +286,8 @@ class workspace:
             
         except:
             
-            self.text.bind("<{}-t>".format(ctrl), self.toggle_console)
-            self.toggle_key = "T" 
+            self.text.bind("<{}-G>".format(ctrl), self.toggle_console)
+            self.toggle_key = "G" 
 
         # Save feature variabes
 
@@ -298,14 +312,14 @@ class workspace:
         self.console = console(self, self.default_font)
         self.console_visible = True
         sys.stdout = self.console
-        self.text.bind("<Button-1>", lambda e: self.console.canvas.select_clear())
+        self.root.bind("<Button-1>", self.mouse_press)
 
         # Store original location of cursor
         self.origin = "origin"
         self.text.mark_set(self.origin, INSERT)
         self.text.mark_gravity(self.origin, LEFT)
 
-        # Say Hello to the user
+       # Say Hello to the user
 
         def hello():
 
@@ -314,8 +328,15 @@ class workspace:
             else:
                 ctrl = "Ctrl"
 
-            hello = "Welcome to FoxDot! Press {}+{} for help.".format(ctrl, self.help_key)
+            # with open(FOXDOT_HELLO) as f:
 
+            #     hello = f.read()
+
+            # print()
+            # print(hello)
+            # print()
+            
+            hello = "Welcome to FoxDot! Press {}+{} for help.".format(ctrl, self.help_key)
             print(hello)
             print("-" * len(hello))
 
@@ -347,10 +368,20 @@ class workspace:
 
                 self.text_as_string = self.get_all()
 
+        # Check online if a new version if available
+
+        self.root.after(90, check_versions)
+
         # Ask after widget loaded
+        if RECOVER_WORK:
+            self.root.after(100, recover_work)
 
-        self.root.after(100, recover_work)
+        # Check transparency on startup
+        if TRANSPARENT_ON_STARTUP:
+            self.transparent.set(True)
+            self.root.after(100, self.toggle_transparency)
 
+ 
     def run(self):
         """ Starts the Tk mainloop for the master widget """
         while True:
@@ -380,6 +411,10 @@ class workspace:
 
         return
 
+    def reload(self):
+        """ Reloads synths / samples """
+        return self.namespace['_reload_synths'].__call__()
+
     def read(self):
         return self.text.get("1.0", END)
 
@@ -394,7 +429,7 @@ class workspace:
 
             self.inbrackets = False
 
-            self.update_prompt()
+            self.update_prompt(visible=False)
 
             return
 
@@ -525,11 +560,15 @@ class workspace:
         self.text.queue.put((target, args, kwargs))
         return
 
+    def insert_char(self, char):
+        """ Inserts a character into the text editor at the INSERT cursor 
+            then updates the syntax highlighting etc """
+        self.text.insert(INSERT, char)
+        self.update()
+        return "break"
 
     def insert_lambda_symbol(self, event):
-        self.text.insert(INSERT, u"\u03BB")
-        self.update(event)
-        return
+        return self.insert_char( u"\u03BB" )
 
     # Undo action: Ctrl+Z
     #--------------------
@@ -563,17 +602,21 @@ class workspace:
             
         print("FoxDot Help:")
         print("-----------------------------------------")
-        print("{}+Return      : Execute code".format(ctrl))
-        print("{}+.           : Stop all sound".format(ctrl))
-        print("{}+=           : Increase font size".format(ctrl))
-        print("{}+-           : Decrease font size".format(ctrl))
-        print("{}+L           : Insert lambda symbol".format(ctrl))
-        print("{}+S           : Save your work".format(ctrl))
-        print("{}+O           : Open a file".format(ctrl))
-        print("{}+M           : Toggle the menu".format(ctrl))
-        print("{}+{}           : Toggle console window".format(ctrl, self.toggle_key))
-        print("print(SynthDefs) : View available SynthDefs")
-        print("print(Samples)   : View character-to-sample mapping")
+        print("{}+Return           : Execute code".format(ctrl))
+        print("{}+.                : Stop all sound".format(ctrl))
+        print("{}+=                : Increase font size".format(ctrl))
+        print("{}+-                : Decrease font size".format(ctrl))
+        print("{}+L                : Insert lambda symbol".format(ctrl))
+        print("{}+T                : Insert tilde symbol".format(ctrl))
+        print("{}+S                : Save your work".format(ctrl))
+        print("{}+O                : Open a file".format(ctrl))
+        print("{}+M                : Toggle the menu".format(ctrl))
+        print("{}+{}                : Toggle console window".format(ctrl, self.toggle_key))
+        print("print(SynthDefs)      : View available SynthDefs")
+        print("print(Samples)        : View character-to-sample mapping")
+        print("print(FxList)         : View audio effects")
+        print("print(Attributes)     : View Player attributes")
+        print("print(PatternMethods) : View Pattern methods")
         print("---------------------------------------------------")
         print("Please visit foxdot.org for more information")
         print("---------------------------------------------------")
@@ -744,6 +787,13 @@ class workspace:
         except TclError as e:
             print(e)
         return
+
+    def toggle_prompt(self, event=None):
+        self.prompt.toggle()
+        return "break"
+
+
+    # Copy/paste etc
     
     def edit_paste(self, event=None):
         """ Pastes any text and updates the IDE """
@@ -764,6 +814,14 @@ class workspace:
 
     def newline(self, event=None, insert=INSERT):
         """ Adds whitespace to newlines where necessary """
+
+        # Enter from auto prompt
+
+        if self.prompt.visible:
+
+            self.prompt.autocomplete()
+
+            return "break"
 
         # Remove any highlighted text
 
@@ -1161,6 +1219,19 @@ class workspace:
 
         return
 
+    def duplicate_line(self, event=None):
+        """ Called using Ctrl+D - duplicates the content of this line and moves the insert to the same place on the line below"""
+        # 1. get contents of line
+        row, col = self.text.row_col(INSERT)
+        line_start = "{}.0".format(row)
+        line_end   = "{}.{}".format(row, END)
+        line = self.text.get(line_start, line_end)
+        # 2. Add new line to end of this row
+        self.text.insert(line_end, "\n{}".format(line))
+        self.text.mark_set(INSERT, "{}.{}".format(row + 1, col))
+        self.update_all()
+        return "break"
+
     """
 
         Methods that view the FoxDot namespace
@@ -1169,7 +1240,11 @@ class workspace:
     """
         
 
-    def update_prompt(self):
+    def update_prompt(self, visible=True):
+        if visible:
+            self.prompt.show()
+        else:
+            self.prompt.hide()
         return
 
     def update_prompt2(self):        
@@ -1373,7 +1448,25 @@ class workspace:
 
         self.last_word = string
 
-    def move_word_right(self, event=None):
+        return self.last_word
+
+    def key_up(self, event=None):
+        if self.prompt.visible:
+            self.prompt.cycle_up()
+            return "break"
+        return
+
+    def key_down(self, event=None):
+        if self.prompt.visible:
+            self.prompt.cycle_down()
+            return "break"
+        return
+
+    def move_word_right(self, event=None, keep_selection=False):
+
+        if not keep_selection:
+
+            self.text.remove_selection()
         
         row, col   = index(self.text.index(INSERT))
         searching = True
@@ -1428,7 +1521,12 @@ class workspace:
         
         return "break"
 
-    def move_word_left(self, event=None):
+    def move_word_left(self, event=None, keep_selection=False):
+
+        if not keep_selection:
+
+            self.text.remove_selection()
+
         row, col   = index(self.text.index(INSERT))
         col -= 1
 
@@ -1475,6 +1573,33 @@ class workspace:
         self.text.mark_set(INSERT, index(new_row, new_col))
         
         return "break"
+
+    def select_word_right(self, event=None):
+        """ Calls self.move_word_right() and also selects the text moved """
+        old, _, new = self.text.index(INSERT), self.move_word_right(keep_selection=True), self.text.index(INSERT)
+        self.invert_selection(old, new)
+        return "break"
+
+    def select_word_left(self, event=None):
+        old, _, new = self.text.index(INSERT), self.move_word_left(keep_selection=True), self.text.index(INSERT)
+        self.invert_selection(old, new)
+        return "break"
+
+    def invert_selection(self, index1, index2=None):
+        """ Given two Tkinter indices, will select non-selected text in the range and de-select the selected text """
+
+        for index in self.text.char_range(index1, index2):
+            
+            if self.text.is_selected(index):
+
+                self.text.tag_remove(SEL, index)
+
+            else:
+
+                self.text.tag_add(SEL, index,)   
+
+        return
+    
 
     """
         Generic functions
@@ -1574,17 +1699,19 @@ class workspace:
         self.text.delete("1.0", END)
         self.text.insert("1.0", text.strip())
         self.update_all()
+        self.text.mark_set(INSERT, "1.0")
         return
 
     def get_all(self):
+        """ Returns all the text as a string """
         return self.text.get("1.0", END).strip()
 
     def openhomepage(self):
-        webbrowser.open("www.foxdot.org")
+        webbrowser.open("http://www.foxdot.org/")
         return
 
     def opendocumentation(self):
-        webbrowser.open("https://github.com/Qirky/FoxDot/tree/master/docs/FoxDot/lib")
+        webbrowser.open("http://www.docs.foxdot.org/")
         return
     
     def set_temp_file(self, text):
@@ -1615,4 +1742,19 @@ class workspace:
             Clock = self.namespace["Clock"]
             Clock.kill_tempo_server()
             print("Closed connections")
+        return
+
+    def show_popup(self, *args):
+        """ Shows the context menu when pressing right click """
+        # Show text popup
+        self.popup.show(*args)
+        # Hide console popup
+        self.console.popup.hide(*args)
+        return
+
+    def mouse_press(self, *args):
+        """ De-select etc when pressing mouse 1 """
+        self.console.canvas.select_clear() # Clear select on the console
+        self.popup.hide(*args)
+        self.console.popup.hide(*args)
         return

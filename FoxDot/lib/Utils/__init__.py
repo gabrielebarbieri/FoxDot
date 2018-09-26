@@ -8,8 +8,28 @@
 from __future__ import absolute_import, division, print_function
 
 import sys
+import json
+import itertools
+
+try:
+    from urllib.request import urlopen
+    from urllib.error import URLError
+except ImportError:
+    from urllib2 import urlopen, URLError
 
 # Functions
+
+def get_pypi_version():
+    """ Returns the most up-to-date version number on PyPI. Return None on error """
+    try:
+        addr = "https://pypi.org/pypi/FoxDot/json"
+        page = urlopen(addr, timeout=2.5)
+        data = json.loads(page.read().decode("utf-8"))
+        version = data["info"]["version"]
+    except URLError:
+        version = None
+    return version
+
 
 def stdout(*args):
     """ Forces prints to stdout and not console """
@@ -89,6 +109,12 @@ def PulsesToDurations(data):
 
     return seq
 
+def get_first_item(array):
+    """ Returns first item from a possibly nested list"""
+    try:
+        return get_first_item(array[0])
+    except TypeError:
+        return array
 
 def modi(array, i, debug=0):
     """ Returns the modulo index i.e. modi([0,1,2],4) will return 1 """

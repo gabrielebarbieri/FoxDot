@@ -57,6 +57,7 @@ from .TimeVar import TimeVar
 from .Midi import MidiIn, MIDIDeviceNotFound
 from .Utils import modi
 from .ServerManager import TempoClient, ServerManager
+from .Settings import CPU_USAGE, CLOCK_LATENCY
 
 from time import sleep, time, clock
 from fractions import Fraction
@@ -76,21 +77,21 @@ class TempoClock(object):
         # Flag this when done init
         self.__setup   = False
 
-        # debug
+        # debug information
 
         self.largest_sleep_time = 0
         self.last_block_dur = 0.0
 
-        self.dtype=Fraction
+        # Storing time as a float 
 
-        # Store time as a rational number
+        self.dtype=float
         
         self.time       = self.dtype(0) # Seconds elsapsed
         self.beat       = self.dtype(0) # Beats elapsed
         self.start_time = self.dtype(time()) # could set to 0?
 
         # Don't start yet...
-        self.ticking = False
+        self.ticking = True
 
         # Player Objects stored here
         self.playing = []
@@ -113,10 +114,14 @@ class TempoClock(object):
         self.midi_clock = None
 
         # Can be configured
+        self.latency_values = [0.25, 0.5, 0.75]
         self.latency    = 0.25 # Time between starting processing osc messages and sending to server
         self.nudge      = 0.0  # If you want to synchronise with something external, adjust the nudge
         self.hard_nudge = 0.0
-        self.sleep_time = 0.0001 # The duration to sleep while continually looping
+
+        # The duration to sleep while continually looping
+        self.sleep_values = [0.01, 0.001, 0.0001]
+        self.sleep_time = self.sleep_values[CPU_USAGE]
         self.midi_nudge = 0
 
         # Debug
@@ -126,6 +131,8 @@ class TempoClock(object):
         # If one object is going to played
         self.solo = SoloPlayer()
 
+        self.start()
+
     @classmethod
     def set_server(cls, server):
         """ Sets the destination for OSC messages being compiled (the server is also the class
@@ -134,6 +141,10 @@ class TempoClock(object):
         assert isinstance(server, ServerManager)
         cls.server = server
         return
+
+    @classmethod
+    def add_method(cls, func):
+        setattr(cls, func.__name__, func)
 
     def start_tempo_server(self, serv, **kwargs):
         """ Starts listening for FoxDot clients connecting over a network. This uses
@@ -177,7 +188,24 @@ class TempoClock(object):
 
     def update_tempo(self, bpm):
         """ Schedules the bpm change at the next bar """
-        return self.schedule(lambda *args, **kwargs: object.__setattr__(self, "bpm", bpm))
+        return self.schedule(lambda *args, **kwargs: object.__setattr__(self, "bpm", self._convert_json_bpm(bpm)))
+
+    def swing(self, amount=0.1):
+        """ Sets the nudge attribute to var([0, amount * (self.bpm / 120)],1/2)"""
+        self.nudge = TimeVar([0, amount * (self.bpm / 120)], 1/2) if amount != 0 else 0
+        return
+
+    def set_cpu_usage(self, value):
+        """ Sets the `sleep_time` attribute to values based on desired high/low/medium cpu usage """
+        assert 0 <= value <= 2
+        self.sleep_time = self.sleep_values[value]
+        return
+
+    def set_latency(self, value):
+        """ Sets the `latency` attribute to values based on desired high/low/medium latency """
+        assert 0 <= value <= 2
+        self.latency = self.latency_values[value]
+        return
 
     def __setattr__(self, attr, value):
         if attr == "bpm" and self.__setup:
@@ -186,14 +214,17 @@ class TempoClock(object):
 
             self.update_tempo(value)
 
+            json_value = self._convert_bpm_json(value)
+
             # Notify listening clients
+
             if self.tempo_client is not None:
             
-                self.tempo_client.update_tempo(value)
+                self.tempo_client.update_tempo(json_value)
             
             if self.tempo_server is not None:
             
-                self.tempo_server.update_tempo(value)
+                self.tempo_server.update_tempo(json_value)
 
         elif attr == "midi_nudge" and self.__setup:
 
@@ -274,38 +305,49 @@ class TempoClock(object):
         self.hard_nudge = time2 - (time1 + latency)
         return
 
+    def _convert_bpm_json(self, bpm):
+        if isinstance(bpm, (int, float)):
+            return float(bpm)
+        elif isinstance(bpm, TimeVar):
+            return bpm.json_value()
+
+    def json_bpm(self):
+        """ Returns the bpm in a data type that can be sent over json"""
+        return self._convert_bpm_json(self.bpm)
+
     def get_sync_info(self):
-        """ Returns a serialisable value for Fraction values etc"""
+        """ Returns information for synchronisation across multiple FoxDot instances. To be 
+            stored as a JSON object with a "sync" header """
 
         data = {
             "sync" : {
-                "start_time" : (self.start_time.numerator, self.start_time.denominator),
-                "bpm"        : float(self.bpm), # TODO: serialise timevar etc
-                "beat"       : (self.beat.numerator, self.beat.denominator),
-                "time"       : (self.time.numerator, self.time.denominator)
+                "start_time" : float(self.start_time),
+                "bpm"        : self.json_bpm(),
+                "beat"       : float(self.beat),
+                "time"       : float(self.time)
             }
         }
 
         return data
 
 
-    def set_attr(self, key, value):
-        """ Sets the value of self.key when key is a string """
+    # def set_attr(self, key, value):
+    #     """ Sets the value of self.key when key is a string """
 
-        if key == "bpm":
+    #     if key == "bpm":
 
-            self.bpm = value
+    #         self.bpm = value
 
-        else:
+    #     else:
 
-            setattr(self, key, Fraction(value[0], value[1]))
+    #         setattr(self, key, Fraction(value[0], value[1]))
 
-        return
+    #     return
 
     def get_elapsed_sec(self):
-        return self.dtype( time() - (self.start_time + (self.nudge + self.hard_nudge)) - self.latency )
+        return self.dtype( time() - (self.start_time + (float(self.nudge) + float(self.hard_nudge))) - self.latency )
 
-    def true_now(self):
+    def __now(self):
         """ Returns the *actual* elapsed time (in beats) when adjusting for latency etc """
         # Get number of seconds elapsed
         now = self.get_elapsed_sec()
@@ -318,8 +360,8 @@ class TempoClock(object):
     def now(self):
         """ Returns the total elapsed time (in beats as opposed to seconds) """
         if self.ticking is False: # Get the time w/o latency if not ticking
-            self.beat = self.true_now()
-        return self.beat + self.beat_dur(self.latency)
+            self.beat = self.__now()
+        return float(self.beat)
 
     def osc_message_time(self):
         """ Returns the true time that an osc message should be run i.e. now + latency """
@@ -345,11 +387,11 @@ class TempoClock(object):
 
             # The item might get called by another item in the queue block
 
-            if not block.called(item):
+            if item.called is False:
 
                 try:
 
-                    block.call(item)
+                    item.__call__()
 
                 except SystemExit:
 
@@ -363,9 +405,9 @@ class TempoClock(object):
 
         block.send_osc_messages()
 
-        # Store the osc messages
+        # Store the osc messages -- experimental
 
-        self.history.add(block.beat, block.osc_messages)
+        # self.history.add(block.beat, block.osc_messages)
 
         return
 
@@ -376,11 +418,9 @@ class TempoClock(object):
 
         while self.ticking:
 
-            beat = self.true_now() # get current time
+            beat = self.__now() # get current time
 
-            next_event = self.queue.next()
-
-            if beat >= next_event:
+            if self.queue.after_next_event(beat):
 
                 self.current_block = self.queue.pop()
 
@@ -506,7 +546,7 @@ class TempoClock(object):
                 item.stop()             
         
         self.playing = []
-        self.ticking = False
+        #self.ticking = False
 
         return
 
@@ -548,7 +588,8 @@ class Queue(object):
         # If the new event is before the next scheduled event,
         # move it to the 'front' of the queue
 
-        if beat < self.next():
+        # if beat < self.next():
+        if self.before_next_event(beat):
 
             self.data.append(QueueBlock(self, item, beat, args, kwargs))
 
@@ -613,6 +654,18 @@ class Queue(object):
                 pass
         return sys.maxsize
 
+    def before_next_event(self, beat):
+        try:
+            return beat < self.data[-1].beat
+        except IndexError:
+            return True
+
+    def after_next_event(self, beat):
+        try:
+            return beat >= self.data[-1].beat
+        except IndexError:
+            return False
+
     def get_server(self):
         """ Returns the `ServerManager` instanced used by this block's parent clock """
         return self.parent.server
@@ -623,7 +676,7 @@ class Queue(object):
 from types import FunctionType
 class QueueBlock(object):
     priority_levels = [
-                        lambda x: type(x) == FunctionType,   # Any functions are called first
+                        lambda x: type(x) in (FunctionType, MethodType),   # Any functions are called first
                         lambda x: isinstance(x, MethodCall), # Then scheduled player methods
                         lambda x: isinstance(x, Player),     # Then players themselves
                         lambda x: True                       # And anything else
@@ -634,6 +687,7 @@ class QueueBlock(object):
         self.events         = [ [] for lvl in self.priority_levels ]
         self.called_events  = []
         self.called_objects = []
+        self.items = {}
 
         self.osc_messages   = []
 
@@ -667,6 +721,8 @@ class QueueBlock(object):
 
                 self.events[i].append(q_obj)
 
+                self.items[q_obj.obj] = q_obj # store the wrapped object as an identifer
+
                 break
         return
 
@@ -676,45 +732,7 @@ class QueueBlock(object):
 
     def send_osc_messages(self):
         """ Sends all compiled osc messages to the SuperCollider server """
-        for msg in self.osc_messages:
-            self.server.sendOSC(msg)
-        return
-
-    def call(self, item, caller = None):
-        """ Calls an item in queue slot """
-
-        # This item (likely a Player) might be called by another Player
-
-        if caller is not None:
-
-            # Caller will call the actual object, get the queue_item
-
-            item = self.get_queue_item(item)
-
-        if item not in self.called_events:
-
-            self.called_events.append(item)
-
-            item()
-
-        return
-
-    # Remove duplication
-
-    def already_called(self, obj):
-        """ Returns True if the obj (not QueueItem) has been called """
-        return self.get_queue_item(obj) in self.called_events
-
-    def called(self, item):
-        """ Returns True if the item is in this QueueBlock and has already been called """
-        return item in self.called_events
-
-    def get_queue_item(self, obj):
-        for item in self:
-            if item.obj == obj:
-                return item
-        else:
-            raise ValueError("{} not found".format(key))
+        return list(map(self.server.sendOSC, self.osc_messages))
 
     def players(self):
         return [item for level in self.events[1:3] for item in level]
@@ -722,12 +740,8 @@ class QueueBlock(object):
     def all_items(self):
         return [item for level in self.events for item in level]
 
-    def __getitem__(self, key):
-        for event in self:
-            if event == key:
-                return event # Possible need to be key.obj?
-        else:
-            raise ValueError("{} not found".format(key))
+    def __getitem__(self, key): # could this use hashing with Player objects?
+        return self.items[key]
 
     def __iter__(self):
         return (item for level in self.events for item in level)
@@ -736,7 +750,7 @@ class QueueBlock(object):
         return sum([len(level) for level in self.events])
 
     def __contains__(self, other):
-        return other in self.objects()
+        return other in self.items
 
     def objects(self):
         return [item.obj for level in self.events for item in level]
@@ -748,6 +762,7 @@ class QueueObj(object):
         self.obj = obj
         self.args = args
         self.kwargs = kwargs
+        self.called = False # flag to True when called by the block
     def __eq__(self, other):
         return other == self.obj
     def __ne__(self, other):
@@ -756,6 +771,7 @@ class QueueObj(object):
         return repr(self.obj)
     def __call__(self):
         self.obj.__call__(*self.args, **self.kwargs)
+        self.called = True
 
 class History(object):
     """
@@ -814,8 +830,10 @@ class SoloPlayer:
 
     def set(self, player):
         self.data = [player]
+    
     def reset(self):
         self.data = []
+
     def active(self):
         """ Returns true if self.data is not empty """
         return len(self.data) > 0

@@ -16,31 +16,29 @@ from time import time
 def fetch(func):
     """ Function to wrap basic lambda operators for TimeVars  """
     def eval_now(a, b):
-        try:
+        if isinstance(a, TimeVar):
             a = a.now()
-        except:
-            pass
-        try:
+        if isinstance(b, TimeVar):
             b = b.now()
-        except:
-            pass
         return func(a, b)
     return eval_now
 
 
-class TimeVar:
+class TimeVar(object):
     """ Var(values [,durs=[4]]) """
 
     metro = None
     depth = 128
 
-    def __init__(self, values, dur=None, **kwargs):
+    def __init__(self, values, dur=None, start=0, **kwargs):
 
         if dur is None:
 
             dur = self.metro.bar_length()
 
         self.name     = "un-named"
+
+        self.start_time = float(start) # offset
 
         self.values   = values
         self.dur      = dur
@@ -69,6 +67,11 @@ class TimeVar:
         if self.metro.ticking == False:
 
             self.metro.start()
+
+    def json_value(self):
+        """ Returns data about this TimeVar that can be sent over a network as JSON  """
+        ## pickle?
+        return [str(self.__class__.__name__), list(self.values), list(self.dur)]
 
     @classmethod
     def set_clock(cls, tempo_clock):
@@ -109,51 +112,6 @@ class TimeVar:
         """ Displays the values and the dependency value - useful for debugging """
         return self.value + [self.dependency]
 
-    # def _bpm_cycle_dur(self):
-    #     """ Returns the time, in seconds, for a var to loop to its original
-    #         value and duration if this var is a bpm value. """
-    #     return sum([(self.dur[i] / self.values[i]) for i in range(LCM(len(self.dur), len(self.values)) )]) * 60
-
-    # def _bpm_to_beats(self, duration, start=0):
-    #     """ If self.values are series of bpm, how many beats occur in
-    #         the time frame 'duration'. Used in TempoClock """
-
-    #     cycle_dur = self._bpm_cycle_dur()
-
-    #     start = start % self.length() # What offset to the start to apply
-
-    #     n = duration // cycle_dur # How many cycles occurred in duration
-
-    #     r = duration % cycle_dur  # How many seconds of the last cycle occurred
-
-    #     total = n * self.length()
-
-    #     i = 0
-
-    #     while r > 0:
-
-    #         # Work out their durations and sub from 'r' until 0
-
-    #         seconds = (self.dur[i]/ self.values[i]) * 60.0
-
-    #         offset  = (start / self.values[i]) * 60.0
-
-    #         seconds = seconds - offset
-
-    #         if seconds > 0:
-
-    #             beats = (self.values[i] * min(seconds, r)) / 60.0
-    #             r    -= seconds
-    #             start = 0
-    #             total += beats
-
-    #         else:
-
-    #             start -= self.dur[i]
-
-    #         i += 1
-    #     return total
-
     # Update methods
 
     def new(self, other):
@@ -162,10 +120,6 @@ class TimeVar:
         new = ChildTimeVar(other)
         new.dependency = self
         return new
-
-    # def length(self):
-    #     """ Returns the duration of one full cycle in beats """
-    #     return self.time[-1][1]
 
     def update(self, values, dur=None, **kwargs):
         """ Updates the TimeVar with new values.
@@ -188,7 +142,7 @@ class TimeVar:
 
         # Get the time value if not from the Clock
 
-        time = self.get_current_time(time)
+        time = self.get_current_time(time) - self.start_time
 
         if time >= self.next_time:
 
@@ -468,6 +422,13 @@ class TimeVar:
         for item in self.now():
             yield item
 
+    def transform(self, func):
+        """ Returns a new TimeVar based on a func """
+        new = self.new(0)
+        new.dependency = self
+        new.evaluate = fetch(lambda a, b: func(b))
+        return new
+
 class ChildTimeVar(TimeVar):
     """ When a new TimeVar is created using a function such as addition,
         e.g. var([0,2]) + 2, then a ChildTimeVar is created that contains a
@@ -527,18 +488,15 @@ class Pvar(TimeVar):
 
         TimeVar.__init__(self, data, dur, **kwargs)
 
-    def __getattr__(self, attr):
-        """ (Python 2 compatability) Override for accessing pattern methods. Returns a new
-            Pvar that has been "transformed" using the method such that then method also
-            applies when values have been updated.  """
 
-        try:
+    def __get_pattern_attr(self, attr):
+        """ Returns a function that transforms the patterns of this Pvar if the attr
+            is a Pattern method, if not it returns the attribute  for the current pattern
+        """
 
-            return object.__getattr__(self, attr)
+        pattern_attr = getattr(self.now(), attr)
 
-        except AttributeError:
-
-            # return a function that transforms the patterns of the root Pvar
+        if callable(pattern_attr):
 
             def get_new_pvar(*args, **kwargs):
 
@@ -561,6 +519,23 @@ class Pvar(TimeVar):
                     return new_item
 
             return get_new_pvar
+
+        else:
+
+            return pattern_attr
+
+    def __getattr__(self, attr):
+        """ (Python 2 compatability) Override for accessing pattern methods. Returns a new
+            Pvar that has been "transformed" using the method such that then method also
+            applies when values have been updated.  """
+
+        try:
+
+            return object.__getattr__(self, attr)
+
+        except AttributeError:
+
+            return self.__get_pattern_attr(attr)
 
     def __getattribute__(self, attr):
         """ Override for accessing pattern methods. Returns a new
@@ -573,29 +548,7 @@ class Pvar(TimeVar):
 
         except AttributeError:
 
-            # return a function that transforms the patterns of the root Pvar
-
-            def get_new_pvar(*args, **kwargs):
-
-                # If this is the root Pvar, change the values
-
-                if self.dependency is None:
-
-                    new_values = [getattr(pat, attr)(*args, **kwargs) for pat in self.values]
-
-                    return Pvar(new_values, dur=self.dur)
-
-                else:
-
-                    # Get the "parent" Pvar and re-apply the connecting function
-
-                    new_pvar = getattr(self.dependency, attr)(*args, **kwargs)
-
-                    new_item = self.func(new_pvar, self.original_value)
-
-                    return new_item
-
-            return get_new_pvar
+            return self.__get_pattern_attr(attr)
 
     def new(self, other):
         # new = Pvar([other], dur=self.dur)

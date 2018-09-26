@@ -47,7 +47,7 @@ class SynthDefBaseClass(object):
         # Flag when Synth added to server
         self.synth_added = False
         # Initial behaviour such as amplitude / frequency modulation
-        self.base = []
+        self.base = ["sus = sus * blur;"]
         self.attr = [] # stores custom attributes
 
         # Name of the file to store the SynthDef
@@ -62,15 +62,20 @@ class SynthDefBaseClass(object):
         self.amp         = instance("amp")
         self.pan         = instance("pan")
         self.rate        = instance("rate")
+        self.blur        = instance("blur")
+        self.beat_dur    = instance("beat_dur")
 
         self.defaults = {   "amp"       : 1,
                             "sus"       : 1,
                             "pan"       : 0,
                             "freq"      : 0,
                             "vib"       : 0,
-                            "fmod"      : 0, # could be put in an Effect?
+                            "fmod"      : 0,
                             "rate"      : 0,
-                            "bus"       : 0 }
+                            "bus"       : 0,
+                            "blur"      : 1,
+                            "beat_dur"  : 1 }
+
         # The amp is multiplied by this before being sent to SC
         self.balance = 1
 
@@ -215,7 +220,7 @@ class SynthDefBaseClass(object):
 
             except IOError:
 
-                print("IOError: Unable to update '{}' SynthDef.".format(self.synthdef))
+                print("Warning: Unable to update '{}' SynthDef.".format(self.name))
 
         return
 
@@ -246,7 +251,7 @@ class SynthDefBaseClass(object):
 
         except Exception as e:
 
-            WarningMsg("Error: SynthDef '{}' could not be added to the server:\n{}".format(self.name, e))
+            WarningMsg("{}: SynthDef '{}' could not be added to the server:\n{}".format(e.__class__.__name__, self.name, e))
 
         return None
 
@@ -280,7 +285,6 @@ class SynthDef(SynthDefBaseClass):
         SynthDefBaseClass.add_base_class_behaviour(self)
         self.base.append("freq = In.kr(bus, 1);")
         self.base.append("freq = [freq, freq+fmod];")
-        #freq = Select.kr(freq + fmod > freq,  [freq, ([freq+fmod])]);
         return
 
 class SampleSynthDef(SynthDefBaseClass):

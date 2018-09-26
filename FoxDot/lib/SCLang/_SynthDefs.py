@@ -22,12 +22,13 @@ with SynthDef("audioin") as audioin:
     audioin.osc = AudioIn.ar(1)
     audioin.env = Env.mask()
 
-# with SynthDef("pads") as pads:
-#     pads.amp = pads.amp * 1.5
-#     pads.freq = pads.freq + [0,1]
-#     pads.osc = SinOsc.ar(pads.freq, mul=pads.amp) + Pulse.ar(pads.freq, width=LFTri.kr(pads.sus/16), iphase=0.5, mul=pads.amp/20) 
-#     pads.osc = HPF.ar(pads.osc, 1000);
-#     pads.env = Env.perc()
+# with SynthDef("sinepad") as sinepad:
+#     sinepad.amp = sinepad.amp * 1.5
+#     sinepad.freq = sinepad.freq + [0,2]
+#     sinepad.osc = SinOsc.ar(sinepad.freq, mul=sinepad.amp)
+#     sinepad.osc = HPF.ar(sinepad.osc, 1000);
+#     sinepad.env = Env.perc()
+    # sinepad.env = Env.perc()
 
 with SynthDef("noise") as noise:
     noise.freq  = noise.freq * 2
@@ -146,7 +147,8 @@ with SynthDef("scratch") as scratch:
 with SynthDef("klank") as klank:
     klank.sus = klank.sus * 1.5
     klank.osc = Klank.ar([[1,2,3,4],[1,1,1,1],[2,2,2,2]], ClipNoise.ar(0.0005).dup, klank.freq)
-    klank.osc = Decimator.ar(klank.osc, bits=klank.rate - 1)
+    if SC3_PLUGINS:
+        klank.osc = Decimator.ar(klank.osc, bits=klank.rate - 1)
     klank.env = Env.env(klank.sus*2)
 
 with SynthDef("feel") as feel:
@@ -383,6 +385,9 @@ keys.add()
 
 dbass = FileSynthDef("dbass") 
 dbass.add()
+
+sinepad = FileSynthDef("sinepad") 
+sinepad.add()
 
 # Get rid of the variable synth
 
