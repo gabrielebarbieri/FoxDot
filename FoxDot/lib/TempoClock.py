@@ -347,7 +347,7 @@ class TempoClock(object):
     def get_elapsed_sec(self):
         return self.dtype( time() - (self.start_time + (float(self.nudge) + float(self.hard_nudge))) - self.latency )
 
-    def __now(self):
+    def _now(self):
         """ Returns the *actual* elapsed time (in beats) when adjusting for latency etc """
         # Get number of seconds elapsed
         now = self.get_elapsed_sec()
@@ -360,7 +360,7 @@ class TempoClock(object):
     def now(self):
         """ Returns the total elapsed time (in beats as opposed to seconds) """
         if self.ticking is False: # Get the time w/o latency if not ticking
-            self.beat = self.__now()
+            self.beat = self._now()
         return float(self.beat)
 
     def osc_message_time(self):
@@ -418,7 +418,7 @@ class TempoClock(object):
 
         while self.ticking:
 
-            beat = self.__now() # get current time
+            beat = self._now() # get current time
 
             if self.queue.after_next_event(beat):
 
